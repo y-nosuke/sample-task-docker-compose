@@ -1,0 +1,203 @@
+version: '3.8'
+
+services:
+  ubuntu:
+    image: ubuntu:latest
+    container_name: ubuntu
+    restart: always
+    command: tail -f /dev/null
+
+  sample-task-api-go:
+    image: physicist00/sample-task-api-go:main
+    container_name: sample-task-api-go
+    hostname: sample-task-api-go.localhost
+    restart: always
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_DATABASE_NAME: ${DB_DATABASE_NAME}
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL}
+      JAEGER_SERVICE_NAME: sample-task-api-go
+      JAEGER_AGENT_HOST: jeager
+    depends_on:
+      - keycloak
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sample_task_api_go.rule=Host(`sample-task-api-go.localhost`)"
+      - "traefik.http.routers.sample_task_api_go.entrypoints=web"
+
+  traefik:
+    image: traefik
+    container_name: traefik
+    restart: always
+    ports:
+      - "${TRAEFIK_PORT:-80}:80"
+      - "${TRAEFIK_MNG_PORT:-8080}:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    command:
+      #- "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+
+  mysql:
+    image: mysql:latest
+    container_name: mysql
+    hostname: localhost
+    restart: always
+    ports:
+      - '3306:3306'
+    environment:
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE_NAME}
+    volumes:
+      - ./docker/resources/mysql/initdb.d:/docker-entrypoint-initdb.d
+      - ./docker/volumes/mysql:/var/lib/mysql
+    # TRIGGER作成のために必要
+    command: [ "--log_bin_trust_function_creators=1" ]
+
+  phpmyadmin:
+    image: phpmyadmin
+    container_name: phpmyadmin
+    hostname: phpmyadmin.localhost
+    restart: always
+    environment:
+      PMA_ARBITRARY: 1
+      PMA_HOSTS: mysql
+      PMA_USER: ${DB_USER}
+      PMA_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./docker/volumes/phpmyadmin/sessions:/sessions
+    depends_on:
+      - mysql
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.phpmyadmin.rule=Host(`phpmyadmin.localhost`)"
+      - "traefik.http.routers.phpmyadmin.entrypoints=web"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    hostname: keycloak.localhost
+    restart: always
+    environment:
+      TZ: Asia/Tokyo
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+    volumes:
+      - ./docker/volumes/keycloak:/opt/keycloak/data/h2
+    command:
+      - start-dev
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.rule=Host(`keycloak.localhost`)"
+      - "traefik.http.routers.keycloak.entrypoints=web"
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: mailhog
+    hostname: mailhog.localhost
+    restart: always
+    ports:
+      - "1025:1025"
+#      - "8025:8025"
+    environment:
+      MH_STORAGE: maildir
+      MH_MAILDIR_PATH: /tmp
+    volumes:
+      - ./docker/volumes/mailhog:/tmp
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mailhog.rule=Host(`mailhog.localhost`)"
+      - "traefik.http.routers.mailhog.entrypoints=web"
+      - "traefik.http.services.mail.loadbalancer.server.port=8025"
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.61.0
+    container_name: otel-collector
+    restart: always
+    ports:
+      - "6831:6831/udp"
+    volumes:
+      - ./docker/resources/otel-collector/otel-collector.yaml:/etc/otel-collector.yaml
+    command: [ "--config=/etc/otel-collector.yaml" ]
+    depends_on:
+      - jeager
+      - prometheus
+
+  jeager:
+    image: jaegertracing/all-in-one
+    container_name: jeager
+    hostname: jeager.localhost
+    restart: always
+#    ports:
+#      - "6831:6831/udp"
+#      - "6832:6832/udp"
+#      - "5778:5778"
+#      - "16686:16686"
+#      - "4317:4317"
+#      - "4318:4318"
+#      - "14250:14250"
+#      - "14268:14268"
+#      - "14269:14269"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+    volumes:
+      - ./docker/volumes/jeager:/badger
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jeager.rule=Host(`jeager.localhost`)"
+      - "traefik.http.routers.jeager.entrypoints=web"
+      - "traefik.http.services.jeager.loadbalancer.server.port=16686"
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    hostname: prometheus.localhost
+    restart: always
+    volumes:
+      - ./docker/resources/prometheus:/etc/prometheus
+      - ./docker/volumes/prometheus:/prometheus
+    command: "--config.file=/etc/prometheus/prometheus.yml --web.external-url=http://prometheus.localhost/"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.localhost`)"
+      - "traefik.http.routers.prometheus.entrypoints=web"
+
+  alertmanager:
+    image: prom/alertmanager
+    container_name: alertmanager
+    hostname: alertmanager.localhost
+    restart: always
+    volumes:
+      - ./docker/resources/alertmanager:/etc/alertmanager
+    command: "--config.file=/etc/alertmanager/alertmanager.yml --web.external-url=http://alertmanager.localhost/"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.alertmanager.rule=Host(`alertmanager.localhost`)"
+      - "traefik.http.routers.alertmanager.entrypoints=web"
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    hostname: grafana.localhost
+    restart: always
+    environment:
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - ./docker/resources/grafana/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - ./docker/volumes/grafana:/var/lib/grafana
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.localhost`)"
+      - "traefik.http.routers.grafana.entrypoints=web"
