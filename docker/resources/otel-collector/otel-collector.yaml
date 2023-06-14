@@ -11,19 +11,22 @@ receivers:
             - targets: ["sample-task-api-go:1323"]
 
 exporters:
-  jaeger:
-    endpoint: jaeger:14250
+  otlp/jaeger:
+    endpoint: jaeger:4317
     tls:
       insecure: true
   prometheus:
     endpoint: "0.0.0.0:8889"
   logging:
+    verbosity: detailed
+  file:
+    path: /opt/otel-collector/filename.json
 
 service:
   pipelines:
     traces:
       receivers: [jaeger]
-      exporters: [logging, jaeger]
+      exporters: [logging, file, otlp/jaeger]
     metrics:
       receivers: [prometheus]
       exporters: [logging, prometheus]
