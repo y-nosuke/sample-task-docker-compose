@@ -8,7 +8,7 @@ receivers:
         - job_name: 'sample-task-api-go'
           scrape_interval: 5s
           static_configs:
-            - targets: ["host.docker.internal:1323"]
+            - targets: ["sample-task-api-go:1323"]
 
 exporters:
   jaeger:
