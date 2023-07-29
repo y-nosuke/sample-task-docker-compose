@@ -17,16 +17,39 @@ exporters:
       insecure: true
   prometheus:
     endpoint: "0.0.0.0:8889"
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    target_info:
+      enabled: true
   logging:
     verbosity: detailed
   file:
     path: /opt/otel-collector/filename.json
 
+connectors:
+  # spanmetrics:
+  #   namespace: span.metrics
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [100us, 1ms, 2ms, 6ms, 10ms, 100ms, 250ms]
+    dimensions:
+      - name: http.method
+        default: GET
+      - name: http.status_code
+    dimensions_cache_size: 1000
+    aggregation_temporality: "AGGREGATION_TEMPORALITY_CUMULATIVE"
+    metrics_flush_interval: 15s
+
 service:
   pipelines:
     traces:
       receivers: [jaeger]
-      exporters: [logging, file, otlp/jaeger]
+      exporters: [spanmetrics, logging, file, otlp/jaeger]
+    metrics/trace:
+      receivers: [spanmetrics]
+      exporters: [prometheusremotewrite]
     metrics:
       receivers: [prometheus]
-      exporters: [logging, prometheus]
+      # exporters: [logging, prometheus]
+      exporters: [prometheus]

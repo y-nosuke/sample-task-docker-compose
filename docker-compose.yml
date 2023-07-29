@@ -119,7 +119,7 @@ services:
       - "traefik.http.services.mail.loadbalancer.server.port=8025"
 
   otel-collector:
-    image: otel/opentelemetry-collector
+    image: otel/opentelemetry-collector-contrib
     container_name: otel-collector
     restart: always
     ports:
@@ -153,6 +153,8 @@ services:
       - BADGER_EPHEMERAL=false
       - BADGER_DIRECTORY_VALUE=/badger/data
       - BADGER_DIRECTORY_KEY=/badger/key
+      - METRICS_STORAGE_TYPE=prometheus
+      - PROMETHEUS_SERVER_URL=http://prometheus:9090
     volumes:
       - ./docker/volumes/jaeger:/badger
     labels:
@@ -160,6 +162,7 @@ services:
       - "traefik.http.routers.jaeger.rule=Host(`jaeger.localhost`)"
       - "traefik.http.routers.jaeger.entrypoints=web"
       - "traefik.http.services.jaeger.loadbalancer.server.port=16686"
+    command: ["--prometheus.query.support-spanmetrics-connector=true"]
 
   prometheus:
     image: prom/prometheus
