@@ -202,3 +202,18 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.grafana.rule=Host(`grafana.localhost`)"
       - "traefik.http.routers.grafana.entrypoints=web"
+
+  tempo:
+    image: grafana/tempo
+    container_name: tempo
+    hostname: tempo.localhost
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./docker/resources/tempo/tempo.yaml:/etc/tempo.yaml
+      - ./docker/volumes/tempo/tempo-data:/tmp/tempo
+    ports:
+      - "14268"  # jaeger ingest
+      - "3200"   # tempo
+      - "4317"  # otlp grpc
+      - "4318"  # otlp http
+      - "9411"   # zipkin
